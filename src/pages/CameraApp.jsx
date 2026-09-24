@@ -4,8 +4,8 @@ import { useCamera } from "../hooks/useCamera";
 import { useHandTracking } from "../hooks/useHandTracking";
 import {
   applyGhostEffect,
-  calibrateBackground,
   resetCalibration,
+  setInvisible,
 } from "../effects/ghost";
 import { applySpidermanEffect, resetSpiderman } from "../effects/spiderman";
 import { applyIronmanEffect, resetIronman } from "../effects/ironman";
@@ -182,12 +182,11 @@ function CameraApp() {
   const { videoRef, isReady, error } = useCamera();
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
-  const [activeEffect, setActiveEffect] = useState("normal");
-  const [isCalibrated, setIsCalibrated] = useState(false);
-  const [showCalibrationMsg, setShowCalibrationMsg] = useState(false);
+  const [activeEffect, setActiveEffect] = useState("spiderman");
   const [gestureLabel, setGestureLabel] = useState("");
   const lastGestureRef = useRef("none");
   const landmarksRef = useRef([]);
+  const activeEffectRef = useRef("spiderman");
 
   const { gesture, landmarks } = useHandTracking(videoRef, canvasRef, isReady);
 
@@ -195,45 +194,51 @@ function CameraApp() {
     landmarksRef.current = landmarks;
   }, [landmarks]);
 
+  useEffect(() => {
+    activeEffectRef.current = activeEffect;
+  }, [activeEffect]);
+
   // Auto switch effect based on gesture
   useEffect(() => {
     if (gesture === "none" || gesture === lastGestureRef.current) return;
     lastGestureRef.current = gesture;
 
     const newEffect = GESTURE_MAP[gesture];
-    if (newEffect && newEffect !== activeEffect) {
+
+    if (newEffect && newEffect !== activeEffectRef.current) {
       resetAllEffects();
+      setInvisible(false);
       setActiveEffect(newEffect);
+      activeEffectRef.current = newEffect;
 
       const hero = HEROES.find((h) => h.id === newEffect);
       if (hero) {
         setGestureLabel(`${hero.gesture} → ${hero.name}!`);
         setTimeout(() => setGestureLabel(""), 2500);
       }
+    }
 
-      if (newEffect !== "ghost") setIsCalibrated(false);
+    // Ghost invisibility toggle
+    if (activeEffectRef.current === "ghost") {
+      if (gesture === "wave") {
+        setInvisible(true);
+        setGestureLabel("👻 INVISIBLE ACTIVATED!");
+        setTimeout(() => setGestureLabel(""), 2000);
+      } else if (gesture === "ironman") {
+        // Open palm = visible again
+        setInvisible(false);
+        setGestureLabel("👁️ VISIBLE AGAIN");
+        setTimeout(() => setGestureLabel(""), 2000);
+      }
     }
   }, [gesture]);
-
-  // Calibrate background
-  const handleCalibrate = useCallback(() => {
-    if (!isReady) return;
-    setShowCalibrationMsg(true);
-    setTimeout(() => {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      calibrateBackground(videoRef.current, canvas);
-      setIsCalibrated(true);
-      setShowCalibrationMsg(false);
-    }, 3000);
-  }, [isReady]);
 
   // Manual effect switch
   const handleEffectChange = (effectId) => {
     resetAllEffects();
+    setInvisible(false);
     setActiveEffect(effectId);
-    if (effectId !== "ghost") setIsCalibrated(false);
+    activeEffectRef.current = effectId;
   };
 
   // Render loop
@@ -250,7 +255,7 @@ function CameraApp() {
 
       const lm = landmarksRef.current;
 
-      switch (activeEffect) {
+      switch (activeEffectRef.current) {
         case "ghost":
           applyGhostEffect(ctx, video, canvas);
           break;
@@ -287,7 +292,7 @@ function CameraApp() {
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [isReady, activeEffect]);
+  }, [isReady]);
 
   const activeHero = HEROES.find((h) => h.id === activeEffect);
 
@@ -298,7 +303,7 @@ function CameraApp() {
           <p className="text-red-400 text-xl mb-4">⚠️ {error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="bg-purple-600 text-white px-6 py-2 rounded-full"
+            className="bg-red-600 text-white px-6 py-2 rounded-full font-bold"
           >
             Try Again
           </button>
@@ -315,26 +320,21 @@ function CameraApp() {
         animate={{ opacity: 1, y: 0 }}
         className="mb-3 text-center"
       >
-        <h1 className="text-2xl font-bold">
-          <span className="text-white">Vey</span>
-          <span className="text-purple-500">sh</span>
+        <h1 className="text-2xl font-black tracking-widest">
+          <span className="text-white">VEY</span>
+          <span className="text-red-500">SH</span>
         </h1>
         {activeHero && (
           <p
-            className="text-sm mt-1 font-medium"
+            className="text-sm mt-1 font-bold tracking-wider"
             style={{ color: activeHero.colors.text }}
           >
-            {activeHero.symbol && (
-              <span className="inline-block mr-2 align-middle">
-                {activeHero.symbol}
-              </span>
-            )}
-            {activeHero.name} Mode
+            {activeHero.name} Mode — {activeHero.gesture}
           </p>
         )}
       </motion.div>
 
-      {/* Camera Canvas — LARGE */}
+      {/* Camera Canvas */}
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -343,8 +343,8 @@ function CameraApp() {
           maxWidth: "900px",
           boxShadow: activeHero
             ? `0 0 50px ${activeHero.colors.accent}44`
-            : "0 0 40px rgba(124, 58, 237, 0.3)",
-          border: `2px solid ${activeHero ? activeHero.colors.accent + "44" : "#4c1d9544"}`,
+            : "0 0 40px rgba(255, 50, 0, 0.3)",
+          border: `2px solid ${activeHero ? activeHero.colors.accent + "44" : "#ff220044"}`,
         }}
       >
         <video ref={videoRef} className="hidden" playsInline muted />
@@ -361,12 +361,12 @@ function CameraApp() {
               initial={{ opacity: 0, y: 20, scale: 0.8 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -20, scale: 0.8 }}
-              className="absolute bottom-6 left-1/2 transform -translate-x-1/2 backdrop-blur-md text-white px-8 py-3 rounded-full text-sm font-bold"
+              className="absolute bottom-6 left-1/2 transform -translate-x-1/2 backdrop-blur-md text-white px-8 py-3 rounded-full text-sm font-black tracking-wider"
               style={{
                 background: activeHero
-                  ? `${activeHero.colors.bg}cc`
-                  : "#1a003388",
-                border: `1px solid ${activeHero ? activeHero.colors.accent : "#aa44ff"}`,
+                  ? `${activeHero.colors.bg}dd`
+                  : "#1a000088",
+                border: `1px solid ${activeHero ? activeHero.colors.accent : "#ff2200"}`,
               }}
             >
               {gestureLabel}
@@ -376,21 +376,23 @@ function CameraApp() {
 
         {/* Hand detected */}
         {landmarks.length > 0 && (
-          <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md border border-purple-700/50 rounded-full px-3 py-1 text-xs text-purple-300">
+          <div
+            className="absolute top-4 right-4 backdrop-blur-md rounded-full px-3 py-1 text-xs font-bold"
+            style={{
+              background: activeHero ? `${activeHero.colors.bg}99` : "#00000099",
+              border: `1px solid ${activeHero ? activeHero.colors.accent + "60" : "#ff220060"}`,
+              color: activeHero ? activeHero.colors.text : "#ff4400",
+            }}
+          >
             ✋ {landmarks.length} hand{landmarks.length > 1 ? "s" : ""}
           </div>
         )}
 
-        {/* Calibration */}
-        {showCalibrationMsg && (
-          <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-purple-300 text-lg font-medium">
-                Step away from camera...
-              </p>
-              <p className="text-gray-500 text-sm mt-2">3 seconds</p>
-            </div>
+        {/* Ghost tip */}
+        {activeEffect === "ghost" && (
+          <div className="absolute bottom-6 left-4 bg-black/60 backdrop-blur-md border border-purple-700/50 rounded-xl px-3 py-2 text-xs text-purple-300">
+            <p>👋 <b>Wave</b> → Invisible</p>
+            <p>✋ <b>Open palm</b> → Visible</p>
           </div>
         )}
 
@@ -398,7 +400,7 @@ function CameraApp() {
         {!isReady && (
           <div className="absolute inset-0 bg-black flex items-center justify-center">
             <div className="text-center">
-              <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
               <p className="text-gray-400 text-sm">Starting camera...</p>
             </div>
           </div>
@@ -427,7 +429,7 @@ function CameraApp() {
               borderColor:
                 activeEffect === hero.id
                   ? hero.colors.accent
-                  : "rgba(100,50,150,0.3)",
+                  : "rgba(100,50,50,0.3)",
               boxShadow:
                 activeEffect === hero.id
                   ? `0 0 20px ${hero.colors.accent}44`
@@ -436,49 +438,26 @@ function CameraApp() {
           >
             {hero.symbol}
             <span
-              className="text-xs font-medium"
+              className="text-xs font-bold tracking-wide"
               style={{
-                color:
-                  activeEffect === hero.id ? hero.colors.text : "#666",
+                color: activeEffect === hero.id ? hero.colors.text : "#555",
               }}
             >
               {hero.name}
             </span>
-            <span className="text-xs opacity-50">{hero.gesture}</span>
+            <span className="text-xs opacity-40">{hero.gesture}</span>
           </motion.button>
         ))}
       </motion.div>
-
-      {/* Ghost calibration */}
-      {activeEffect === "ghost" && !isCalibrated && (
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          onClick={handleCalibrate}
-          className="mt-3 bg-purple-600 hover:bg-purple-500 text-white px-8 py-2 rounded-full text-sm font-medium"
-        >
-          👻 Calibrate Background
-        </motion.button>
-      )}
-
-      {activeEffect === "ghost" && isCalibrated && (
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="mt-3 text-green-400 text-sm"
-        >
-          ✅ Calibrated! Disappear! 👻
-        </motion.p>
-      )}
 
       {/* Back */}
       <motion.button
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         onClick={() => window.history.back()}
-        className="mt-3 text-gray-600 hover:text-purple-400 text-sm transition-colors"
+        className="mt-4 text-gray-600 hover:text-red-400 text-sm transition-colors tracking-wider"
       >
-        ← Back to Home
+        ← BACK TO HOME
       </motion.button>
     </div>
   );

@@ -1,73 +1,129 @@
-let backgroundFrame = null;
-let isCalibrated = false;
+let segmenter = null;
+let isInitialized = false;
+let backgroundCanvas = null;
+let backgroundCtx = null;
+let outputCanvas = null;
+let outputCtx = null;
 let frameCount = 0;
+let invisibilityLevel = 0;
+let isInvisible = false;
 
-export function calibrateBackground(video, canvas) {
-  const ctx = canvas.getContext("2d");
-  // Capture multiple frames for better background
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  backgroundFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  isCalibrated = true;
+async function initSegmenter() {
+  if (isInitialized) return;
+
+  const { SelfieSegmentation } = await import("@mediapipe/selfie_segmentation");
+
+  segmenter = new SelfieSegmentation({
+    locateFile: (file) =>
+      `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`,
+  });
+
+  segmenter.setOptions({
+    modelSelection: 1, // 1 = landscape model — better quality
+  });
+
+  isInitialized = true;
+}
+
+export function setInvisible(value) {
+  isInvisible = value;
+  if (value) {
+    invisibilityLevel = 0;
+  }
 }
 
 export function applyGhostEffect(ctx, video, canvas) {
   frameCount++;
 
-  // Draw current frame
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  // Initialize segmenter
+  if (!isInitialized) {
+    initSegmenter();
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  if (!isCalibrated || !backgroundFrame) {
-    // Show instruction
-    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+    // Loading message
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
     ctx.fillRect(0, canvas.height / 2 - 40, canvas.width, 80);
-    ctx.fillStyle = "rgba(170, 68, 255, 0.9)";
-    ctx.font = "bold 20px sans-serif";
+    ctx.fillStyle = "#aa44ff";
+    ctx.font = "bold 18px monospace";
     ctx.textAlign = "center";
-    ctx.fillText("👻 Step away and click Calibrate!", canvas.width / 2, canvas.height / 2 + 7);
+    ctx.fillText("👻 Initializing Ghost Mode...", canvas.width / 2, canvas.height / 2 + 7);
     ctx.textAlign = "left";
     return;
   }
 
-  // Get current frame pixels
-  const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const current = currentFrame.data;
-  const bg = backgroundFrame.data;
+  if (!isInvisible) {
+    // Normal view — not invisible
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  // Better pixel comparison
-  for (let i = 0; i < current.length; i += 4) {
-    const rDiff = Math.abs(current[i] - bg[i]);
-    const gDiff = Math.abs(current[i + 1] - bg[i + 1]);
-    const bDiff = Math.abs(current[i + 2] - bg[i + 2]);
-    const diff = (rDiff + gDiff + bDiff) / 3;
+    // Show hint
+    ctx.fillStyle = "rgba(170, 68, 255, 0.15)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    if (diff < 35) {
-      // Background pixel — show background fully
-      current[i] = bg[i];
-      current[i + 1] = bg[i + 1];
-      current[i + 2] = bg[i + 2];
-      current[i + 3] = 255;
-    } else {
-      // Person pixel — make transparent
-      current[i + 3] = 20;
-    }
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(canvas.width / 2 - 180, canvas.height - 70, 360, 50);
+    ctx.fillStyle = "#cc88ff";
+    ctx.font = "bold 14px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("👋 WAVE to become INVISIBLE", canvas.width / 2, canvas.height - 38);
+    ctx.textAlign = "left";
+
+    // HUD
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = "rgba(20, 0, 40, 0.4)";
+    ctx.fillRect(0, 0, canvas.width, 42);
+    ctx.fillStyle = "#aa44ff";
+    ctx.font = "bold 13px monospace";
+    ctx.fillText("GHOST MODE // STANDBY", 20, 26);
+    ctx.globalAlpha = 1.0;
+    return;
   }
 
-  // Draw background first
-  ctx.putImageData(backgroundFrame, 0, 0);
+  // Invisibility active — use canvas pixel manipulation
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  // Draw person with transparency
-  const tempCanvas = document.createElement("canvas");
-  tempCanvas.width = canvas.width;
-  tempCanvas.height = canvas.height;
-  const tempCtx = tempCanvas.getContext("2d");
-  tempCtx.putImageData(currentFrame, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
 
-  ctx.drawImage(tempCanvas, 0, 0);
+  // Ramp up invisibility
+  invisibilityLevel = Math.min(invisibilityLevel + 0.08, 1.0);
 
-  // Ghost glow overlay
+  // Apply invisibility — make person semi-transparent
+  // Simple skin detection + general transparency
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+
+    // Convert to HSV-like
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const brightness = max / 255;
+    const saturation = max === 0 ? 0 : (max - min) / max;
+
+    // Make everything semi-transparent based on invisibility level
+    data[i + 3] = Math.floor(255 * (1 - invisibilityLevel * 0.92));
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+
+  // Invisibility shimmer effect
   ctx.globalCompositeOperation = "screen";
-  ctx.fillStyle = "rgba(170, 68, 255, 0.03)";
+
+  // Edge shimmer
+  const shimmerGrad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  shimmerGrad.addColorStop(0, `rgba(170, 68, 255, ${0.05 * invisibilityLevel})`);
+  shimmerGrad.addColorStop(0.5, `rgba(200, 150, 255, ${0.08 * invisibilityLevel})`);
+  shimmerGrad.addColorStop(1, `rgba(170, 68, 255, ${0.05 * invisibilityLevel})`);
+  ctx.fillStyle = shimmerGrad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Distortion waves
+  if (frameCount % 3 === 0) {
+    const waveY = (frameCount * 2) % canvas.height;
+    ctx.fillStyle = `rgba(200, 150, 255, ${0.04 * invisibilityLevel})`;
+    ctx.fillRect(0, waveY, canvas.width, 2);
+  }
+
   ctx.globalCompositeOperation = "source-over";
 
   // HUD
@@ -76,26 +132,23 @@ export function applyGhostEffect(ctx, video, canvas) {
   ctx.fillRect(0, 0, canvas.width, 42);
   ctx.fillStyle = "#aa44ff";
   ctx.font = "bold 13px monospace";
-  ctx.fillText("GHOST MODE // INVISIBILITY: ACTIVE", 20, 26);
+  ctx.fillText("GHOST MODE // INVISIBLE: ACTIVE", 20, 26);
   ctx.fillStyle = "#cc88ff";
   ctx.font = "11px monospace";
-  ctx.fillText("👻 YOU ARE INVISIBLE", canvas.width - 180, 26);
+  ctx.fillText(`👻 ${Math.floor(invisibilityLevel * 100)}% INVISIBLE`, canvas.width - 180, 26);
   ctx.globalAlpha = 1.0;
 }
 
 export function resetCalibration() {
-  backgroundFrame = null;
-  isCalibrated = false;
+  isInvisible = false;
+  invisibilityLevel = 0;
   frameCount = 0;
 }
 
-export function calibrateBackground(video, canvas) {
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  backgroundFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  isCalibrated = true;
+export function getCalibrationStatus() {
+  return isInvisible;
 }
 
-export function getCalibrationStatus() {
-  return isCalibrated;
+export function calibrateBackground(video, canvas) {
+  // Not needed anymore
 }
