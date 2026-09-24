@@ -155,11 +155,12 @@ function detectHeroGesture(landmarksArray) {
   // ============ DR. STRANGE ============
   // Thumb + Index form circle (OK sign)
   // Middle + Ring + Pinky UP
-  if (f1.middle && f1.ring && f1.pinky && !f1.index) {
-    const pinchDist = getPinchDistance(hand1);
-    if (pinchDist < 0.06) return "strange";
-  }
-
+  // ============ DR. STRANGE ============
+// Thumb + Index pinch close — middle, ring, pinky UP
+if (f1.middle && f1.ring && f1.pinky) {
+  const pinchDist = getPinchDistance(hand1);
+  if (pinchDist < 0.08) return "strange";
+}
   // ============ HULK ============
   // Both hands — both fists closed
   if (hand2) {
